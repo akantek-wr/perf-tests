@@ -76,7 +76,7 @@ const (
 	outputCaptureFile    = "/tmp/output.txt"
 	mssMin               = 96
 	mssMax               = 1460
-	mssStepSize          = 64
+	mssStepSize          = 512
 	parallelStreams      = "8"
 	rpcServicePort       = "5202"
 	localhostIPv4Address = "127.0.0.1"
@@ -151,6 +151,7 @@ type testcase struct {
 
 var testcases []*testcase
 var currentJobIndex int
+var testGroups int = 1
 
 func init() {
 	flag.StringVar(&mode, "mode", "worker", "Mode for the daemon (worker | orchestrator)")
@@ -164,19 +165,19 @@ func init() {
 		{SourceNode: "netperf-w1", DestinationNode: "netperf-w3", Label: "3 iperf TCP. Remote VM using Pod IP", Type: iperfTCPTest, ClusterIP: false, MSS: mssMin},
 		{SourceNode: "netperf-w3", DestinationNode: "netperf-w2", Label: "4 iperf TCP. Remote VM using Virtual IP", Type: iperfTCPTest, ClusterIP: true, MSS: mssMin},
 		{SourceNode: "netperf-w2", DestinationNode: "netperf-w2", Label: "5 iperf TCP. Hairpin Pod to own Virtual IP", Type: iperfTCPTest, ClusterIP: true, MSS: mssMin},
-		{SourceNode: "netperf-w1", DestinationNode: "netperf-w2", Label: "6 iperf SCTP. Same VM using Pod IP", Type: iperfSctpTest, ClusterIP: false, MSS: mssMin},
-		{SourceNode: "netperf-w1", DestinationNode: "netperf-w2", Label: "7 iperf SCTP. Same VM using Virtual IP", Type: iperfSctpTest, ClusterIP: true, MSS: mssMin},
-		{SourceNode: "netperf-w1", DestinationNode: "netperf-w3", Label: "8 iperf SCTP. Remote VM using Pod IP", Type: iperfSctpTest, ClusterIP: false, MSS: mssMin},
-		{SourceNode: "netperf-w3", DestinationNode: "netperf-w2", Label: "9 iperf SCTP. Remote VM using Virtual IP", Type: iperfSctpTest, ClusterIP: true, MSS: mssMin},
-		{SourceNode: "netperf-w2", DestinationNode: "netperf-w2", Label: "10 iperf SCTP. Hairpin Pod to own Virtual IP", Type: iperfSctpTest, ClusterIP: true, MSS: mssMin},
-		{SourceNode: "netperf-w1", DestinationNode: "netperf-w2", Label: "11 iperf UDP. Same VM using Pod IP", Type: iperfUDPTest, ClusterIP: false, MSS: mssMin},
-		{SourceNode: "netperf-w1", DestinationNode: "netperf-w2", Label: "12 iperf UDP. Same VM using Virtual IP", Type: iperfUDPTest, ClusterIP: true, MSS: mssMin},
-		{SourceNode: "netperf-w1", DestinationNode: "netperf-w3", Label: "13 iperf UDP. Remote VM using Pod IP", Type: iperfUDPTest, ClusterIP: false, MSS: mssMin},
-		{SourceNode: "netperf-w3", DestinationNode: "netperf-w2", Label: "14 iperf UDP. Remote VM using Virtual IP", Type: iperfUDPTest, ClusterIP: true, MSS: mssMin},
-		{SourceNode: "netperf-w1", DestinationNode: "netperf-w2", Label: "15 netperf. Same VM using Pod IP", Type: netperfTest, ClusterIP: false},
-		{SourceNode: "netperf-w1", DestinationNode: "netperf-w2", Label: "16 netperf. Same VM using Virtual IP", Type: netperfTest, ClusterIP: true},
-		{SourceNode: "netperf-w1", DestinationNode: "netperf-w3", Label: "17 netperf. Remote VM using Pod IP", Type: netperfTest, ClusterIP: false},
-		{SourceNode: "netperf-w3", DestinationNode: "netperf-w2", Label: "18 netperf. Remote VM using Virtual IP", Type: netperfTest, ClusterIP: true},
+		//{SourceNode: "netperf-w1", DestinationNode: "netperf-w2", Label: "6 iperf SCTP. Same VM using Pod IP", Type: iperfSctpTest, ClusterIP: false, MSS: mssMin},
+		//{SourceNode: "netperf-w1", DestinationNode: "netperf-w2", Label: "7 iperf SCTP. Same VM using Virtual IP", Type: iperfSctpTest, ClusterIP: true, MSS: mssMin},
+		//{SourceNode: "netperf-w1", DestinationNode: "netperf-w3", Label: "8 iperf SCTP. Remote VM using Pod IP", Type: iperfSctpTest, ClusterIP: false, MSS: mssMin},
+		//{SourceNode: "netperf-w3", DestinationNode: "netperf-w2", Label: "9 iperf SCTP. Remote VM using Virtual IP", Type: iperfSctpTest, ClusterIP: true, MSS: mssMin},
+		//{SourceNode: "netperf-w2", DestinationNode: "netperf-w2", Label: "10 iperf SCTP. Hairpin Pod to own Virtual IP", Type: iperfSctpTest, ClusterIP: true, MSS: mssMin},
+		//{SourceNode: "netperf-w1", DestinationNode: "netperf-w2", Label: "11 iperf UDP. Same VM using Pod IP", Type: iperfUDPTest, ClusterIP: false, MSS: mssMin},
+		//{SourceNode: "netperf-w1", DestinationNode: "netperf-w2", Label: "12 iperf UDP. Same VM using Virtual IP", Type: iperfUDPTest, ClusterIP: true, MSS: mssMin},
+		//{SourceNode: "netperf-w1", DestinationNode: "netperf-w3", Label: "13 iperf UDP. Remote VM using Pod IP", Type: iperfUDPTest, ClusterIP: false, MSS: mssMin},
+		//{SourceNode: "netperf-w3", DestinationNode: "netperf-w2", Label: "14 iperf UDP. Remote VM using Virtual IP", Type: iperfUDPTest, ClusterIP: true, MSS: mssMin},
+		//{SourceNode: "netperf-w1", DestinationNode: "netperf-w2", Label: "15 netperf. Same VM using Pod IP", Type: netperfTest, ClusterIP: false},
+		//{SourceNode: "netperf-w1", DestinationNode: "netperf-w2", Label: "16 netperf. Same VM using Virtual IP", Type: netperfTest, ClusterIP: true},
+		//{SourceNode: "netperf-w1", DestinationNode: "netperf-w3", Label: "17 netperf. Remote VM using Pod IP", Type: netperfTest, ClusterIP: false},
+		//{SourceNode: "netperf-w3", DestinationNode: "netperf-w2", Label: "18 netperf. Remote VM using Virtual IP", Type: netperfTest, ClusterIP: true},
 	}
 
 	currentJobIndex = 0
@@ -326,6 +327,7 @@ func allocateWorkToClient(workerS *workerState, reply *WorkItem) {
 func (t *NetPerfRPC) RegisterClient(data *ClientRegistrationData, reply *WorkItem) error {
 	globalLock.Lock()
 	defer globalLock.Unlock()
+	fmt.Printf("[%s] ===========> data{Host=%s IP=%s KubeNode=%s Worker=%s}\n", time.Now().Format(time.StampMilli), data.Host, data.IP, data.KubeNode, data.Worker)
 
 	state, ok := workerStateMap[data.Worker]
 
@@ -344,6 +346,13 @@ func (t *NetPerfRPC) RegisterClient(data *ClientRegistrationData, reply *WorkIte
 
 	// Give the worker a new work item or let it idle loop another 5 seconds
 	allocateWorkToClient(state, reply)
+
+	if !reply.IsIdle {
+		fmt.Printf("workerState{sentServerItem=%t idle=%t IP=%s worker=%s\n", state.sentServerItem, state.idle, state.IP, state.worker)
+		fmt.Printf("reply{ClientItem[Host=%s Port=%s MSS=%d Type=%d] ServerItem.ListenPort=%s IsClientItem=%t IsIdle=%t IsServerItem=%t}\n",
+			reply.ClientItem.Host, reply.ClientItem.Port, reply.ClientItem.MSS, reply.ClientItem.Type,
+			reply.ServerItem.ListenPort, reply.IsClientItem, reply.IsIdle, reply.IsServerItem)
+	}
 	return nil
 }
 
@@ -617,6 +626,15 @@ func startWork() {
 				fmt.Println("Error attempting RPC call", err)
 				break
 			}
+			if !workItem.IsIdle {
+				fmt.Printf("workItem IsIdle=%t IsServerItem=%t IsClientItem=%t\n",
+					workItem.IsIdle, workItem.IsServerItem, workItem.IsClientItem)
+				if workItem.IsClientItem {
+					fmt.Printf("ClientItem Host=%s Port=%s MSS=%d Type=%d\n",
+						workItem.ClientItem.Host, workItem.ClientItem.Port,
+						workItem.ClientItem.MSS, workItem.ClientItem.Type)
+				}
+			}
 
 			switch {
 			case workItem.IsIdle == true:
@@ -695,6 +713,7 @@ func netperfClient(serverHost, serverPort string, workItemType int) (rv string) 
 
 func cmdExec(command string, args []string, timeout int32) (rv string, rc bool) {
 	cmd := exec.Cmd{Path: command, Args: args}
+	fmt.Println("===> Exec:", cmd)
 
 	var stdoutput bytes.Buffer
 	var stderror bytes.Buffer
@@ -708,6 +727,7 @@ func cmdExec(command string, args []string, timeout int32) (rv string, rc bool) 
 	}
 
 	rv = stdoutput.String()
+	//fmt.Println(">>===> Result:\n", cmd)
 	rc = true
 	return
 }
