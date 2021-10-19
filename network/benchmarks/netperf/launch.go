@@ -49,20 +49,28 @@ const (
 	iperf3Port       = 5201
 	netperfPort      = 12865
 	netperfPortData  = 12866
+	testInitialGroup = 0
 )
 
 var (
-	iterations     int
-	hostnetworking bool
-	tag            string
-	kubeConfig     string
-	netperfImage   string
-	cleanupOnly    bool
-
+	iterations         int
+	hostnetworking     bool
+	tag                string
+	kubeConfig         string
+	netperfImage       string
+	cleanupOnly        bool
 	everythingSelector metav1.ListOptions = metav1.ListOptions{}
 
 	primaryNode   api.Node
 	secondaryNode api.Node
+
+	testGroups      int
+	testLogState    bool
+	testDuration    int
+	testMssStepSize int
+	testProto       string
+	testTool        string
+	testCooldown    int
 )
 
 func init() {
@@ -76,6 +84,15 @@ func init() {
 		"Location of the kube configuration file ($HOME/.kube/config")
 	flag.BoolVar(&cleanupOnly, "cleanup", false,
 		"(boolean) Run the cleanup resources phase only (use this flag to clean up orphaned resources from a test run)")
+	flag.IntVar(&testGroups, "groups", 1,
+		"how many groups of {w1, w2, w3} the test must launch (for scalability tests)")
+	flag.BoolVar(&testLogState, "log", false, "control log output")
+	flag.IntVar(&testDuration, "duration", 10, "iperf3 test duration (in seconds)")
+	flag.IntVar(&testMssStepSize, "step", 64, "MSS step size (in bytes)")
+	flag.StringVar(&testTool, "tool", "all", "select test tool (all, iperf or netperf)")
+	flag.StringVar(&testProto, "proto", "all", "select iperf test protocol (all, tcp, sctp or udp)")
+	flag.IntVar(&testCooldown, "cooldown", 10, "test cooldown time between test steps")
+
 }
 
 func setupClient() *kubernetes.Clientset {
@@ -93,7 +110,7 @@ func setupClient() *kubernetes.Clientset {
 
 // getMinions : Only return schedulable/worker nodes
 func getMinionNodes(c *kubernetes.Clientset) *api.NodeList {
-	nodes, err := c.Core().Nodes().List(
+	nodes, err := c.CoreV1().Nodes().List(
 		metav1.ListOptions{
 			FieldSelector: "spec.unschedulable=false",
 		})
@@ -106,37 +123,37 @@ func getMinionNodes(c *kubernetes.Clientset) *api.NodeList {
 
 func cleanup(c *kubernetes.Clientset) {
 	// Cleanup existing rcs, pods and services in our namespace
-	rcs, err := c.Core().ReplicationControllers(testNamespace).List(everythingSelector)
+	rcs, err := c.CoreV1().ReplicationControllers(testNamespace).List(everythingSelector)
 	if err != nil {
 		fmt.Println("Failed to get replication controllers", err)
 		return
 	}
 	for _, rc := range rcs.Items {
 		fmt.Println("Deleting rc", rc.GetName())
-		if err := c.Core().ReplicationControllers(testNamespace).Delete(
+		if err := c.CoreV1().ReplicationControllers(testNamespace).Delete(
 			rc.GetName(), &metav1.DeleteOptions{}); err != nil {
 			fmt.Println("Failed to delete rc", rc.GetName(), err)
 		}
 	}
-	pods, err := c.Core().Pods(testNamespace).List(everythingSelector)
+	pods, err := c.CoreV1().Pods(testNamespace).List(everythingSelector)
 	if err != nil {
 		fmt.Println("Failed to get pods", err)
 		return
 	}
 	for _, pod := range pods.Items {
 		fmt.Println("Deleting pod", pod.GetName())
-		if err := c.Core().Pods(testNamespace).Delete(pod.GetName(), &metav1.DeleteOptions{GracePeriodSeconds: new(int64)}); err != nil {
+		if err := c.CoreV1().Pods(testNamespace).Delete(pod.GetName(), &metav1.DeleteOptions{GracePeriodSeconds: new(int64)}); err != nil {
 			fmt.Println("Failed to delete pod", pod.GetName(), err)
 		}
 	}
-	svcs, err := c.Core().Services(testNamespace).List(everythingSelector)
+	svcs, err := c.CoreV1().Services(testNamespace).List(everythingSelector)
 	if err != nil {
 		fmt.Println("Failed to get services", err)
 		return
 	}
 	for _, svc := range svcs.Items {
 		fmt.Println("Deleting svc", svc.GetName())
-		err := c.Core().Services(testNamespace).Delete(
+		err := c.CoreV1().Services(testNamespace).Delete(
 			svc.GetName(), &metav1.DeleteOptions{})
 		if err != nil {
 			fmt.Println("Failed to get service", err)
@@ -147,8 +164,8 @@ func cleanup(c *kubernetes.Clientset) {
 // createServices: Long-winded function to programmatically create our two services
 func createServices(c *kubernetes.Clientset) bool {
 	// Create our namespace if not present
-	if _, err := c.Core().Namespaces().Get(testNamespace, metav1.GetOptions{}); err != nil {
-		_, err := c.Core().Namespaces().Create(&api.Namespace{ObjectMeta: metav1.ObjectMeta{Name: testNamespace}})
+	if _, err := c.CoreV1().Namespaces().Get(testNamespace, metav1.GetOptions{}); err != nil {
+		_, err := c.CoreV1().Namespaces().Create(&api.Namespace{ObjectMeta: metav1.ObjectMeta{Name: testNamespace}})
 		if err != nil {
 			fmt.Println("Failed to create service", err)
 		}
@@ -171,60 +188,64 @@ func createServices(c *kubernetes.Clientset) bool {
 			Type: api.ServiceTypeClusterIP,
 		},
 	}
-	if _, err := c.Core().Services(testNamespace).Create(orchService); err != nil {
+	if _, err := c.CoreV1().Services(testNamespace).Create(orchService); err != nil {
 		fmt.Println("Failed to create orchestrator service", err)
 		return false
 	}
 	fmt.Println("Created orchestrator service")
 
-	// Create the netperf-w2 service that points a clusterIP at the worker 2 pod
-	netperfW2Labels := map[string]string{"app": "netperf-w2"}
-	netperfW2Service := &api.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "netperf-w2",
-		},
-		Spec: api.ServiceSpec{
-			Selector: netperfW2Labels,
-			Ports: []api.ServicePort{
-				{
-					Name:       "netperf-w2",
-					Protocol:   api.ProtocolTCP,
-					Port:       iperf3Port,
-					TargetPort: intstr.FromInt(iperf3Port),
-				},
-				{
-					Name:       "netperf-w2-sctp",
-					Protocol:   api.ProtocolSCTP,
-					Port:       iperf3Port,
-					TargetPort: intstr.FromInt(iperf3Port),
-				},
-				{
-					Name:       "netperf-w2-udp",
-					Protocol:   api.ProtocolUDP,
-					Port:       iperf3Port,
-					TargetPort: intstr.FromInt(iperf3Port),
-				},
-				{
-					Name:       "netperf-w2-netperf",
-					Protocol:   api.ProtocolTCP,
-					Port:       netperfPort,
-					TargetPort: intstr.FromInt(netperfPort),
-				},
-				{
-					Name:       "netperf-w2-netperf-data",
-					Protocol:   api.ProtocolTCP,
-					Port:       netperfPortData,
-					TargetPort: intstr.FromInt(netperfPortData),
-				},
+	for group := testInitialGroup; group < testGroups; group++ {
+		serviceName := fmt.Sprintf("g%d-netperf-w2", group)
+
+		// Create the netperf-w2 service that points a clusterIP at the worker 2 pod
+		netperfW2Labels := map[string]string{"app": serviceName}
+		netperfW2Service := &api.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: serviceName,
 			},
-			Type: api.ServiceTypeClusterIP,
-		},
+			Spec: api.ServiceSpec{
+				Selector: netperfW2Labels,
+				Ports: []api.ServicePort{
+					{
+						Name:       serviceName,
+						Protocol:   api.ProtocolTCP,
+						Port:       iperf3Port,
+						TargetPort: intstr.FromInt(iperf3Port),
+					},
+					{
+						Name:       serviceName + "-sctp",
+						Protocol:   api.ProtocolSCTP,
+						Port:       iperf3Port,
+						TargetPort: intstr.FromInt(iperf3Port),
+					},
+					{
+						Name:       serviceName + "-udp",
+						Protocol:   api.ProtocolUDP,
+						Port:       iperf3Port,
+						TargetPort: intstr.FromInt(iperf3Port),
+					},
+					{
+						Name:       serviceName + "-netperf",
+						Protocol:   api.ProtocolTCP,
+						Port:       netperfPort,
+						TargetPort: intstr.FromInt(netperfPort),
+					},
+					{
+						Name:       serviceName + "-netperf-data",
+						Protocol:   api.ProtocolTCP,
+						Port:       netperfPortData,
+						TargetPort: intstr.FromInt(netperfPortData),
+					},
+				},
+				Type: api.ServiceTypeClusterIP,
+			},
+		}
+		if _, err := c.CoreV1().Services(testNamespace).Create(netperfW2Service); err != nil {
+			fmt.Println("Failed to create netperf-w2 service", err)
+			return false
+		}
+		fmt.Println("Created netperf-w2 service")
 	}
-	if _, err := c.Core().Services(testNamespace).Create(netperfW2Service); err != nil {
-		fmt.Println("Failed to create netperf-w2 service", err)
-		return false
-	}
-	fmt.Println("Created netperf-w2 service")
 	return true
 }
 
@@ -234,8 +255,12 @@ func createRCs(c *kubernetes.Clientset) bool {
 	name := "netperf-orch"
 	fmt.Println("Creating replication controller", name)
 	replicas := int32(1)
+	logParam := ""
+	if testLogState {
+		logParam = "--log"
+	}
 
-	_, err := c.Core().ReplicationControllers(testNamespace).Create(&api.ReplicationController{
+	_, err := c.CoreV1().ReplicationControllers(testNamespace).Create(&api.ReplicationController{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec: api.ReplicationControllerSpec{
 			Replicas: &replicas,
@@ -247,10 +272,15 @@ func createRCs(c *kubernetes.Clientset) bool {
 				Spec: api.PodSpec{
 					Containers: []api.Container{
 						{
-							Name:            name,
-							Image:           netperfImage,
-							Ports:           []api.ContainerPort{{ContainerPort: orchestratorPort}},
-							Args:            []string{"--mode=orchestrator"},
+							Name:  name,
+							Image: netperfImage,
+							Ports: []api.ContainerPort{{ContainerPort: orchestratorPort}},
+							Args: []string{"--mode=orchestrator",
+								fmt.Sprintf("--groups=%d", testGroups),
+								fmt.Sprintf("--step=%d", testMssStepSize),
+								fmt.Sprintf("--tool=%s", testTool),
+								fmt.Sprintf("--proto=%s", testProto),
+								logParam},
 							ImagePullPolicy: "Always",
 						},
 					},
@@ -264,60 +294,70 @@ func createRCs(c *kubernetes.Clientset) bool {
 		return false
 	}
 	fmt.Println("Created orchestrator replication controller")
-	for i := 1; i <= 3; i++ {
-		// Bring up pods slowly
-		time.Sleep(3 * time.Second)
-		kubeNode := primaryNode.GetName()
-		if i == 3 {
-			kubeNode = secondaryNode.GetName()
-		}
-		name = fmt.Sprintf("netperf-w%d", i)
-		fmt.Println("Creating replication controller", name)
-		portSpec := []api.ContainerPort{}
-		if i > 1 {
-			// Worker W1 is a client-only pod - no ports are exposed
-			portSpec = append(portSpec, api.ContainerPort{ContainerPort: iperf3Port, Protocol: api.ProtocolTCP})
-			portSpec = append(portSpec, api.ContainerPort{ContainerPort: iperf3Port, Protocol: api.ProtocolSCTP})
-		}
 
-		workerEnv := []api.EnvVar{
-			{Name: "worker", Value: name},
-			{Name: "kubeNode", Value: kubeNode},
-			{Name: "podname", Value: name},
-		}
+	for group := testInitialGroup; group < testGroups; group++ {
 
-		replicas := int32(1)
+		for i := 1; i <= 3; i++ {
+			// Bring up pods slowly
+			time.Sleep(3 * time.Second)
+			kubeNode := primaryNode.GetName()
+			if i == 3 {
+				kubeNode = secondaryNode.GetName()
+			}
+			name = fmt.Sprintf("g%d-netperf-w%d", group, i)
+			fmt.Println("Creating replication controller", name)
+			portSpec := []api.ContainerPort{}
+			if i > 1 {
+				// Worker W1 is a client-only pod - no ports are exposed
+				portSpec = append(portSpec, api.ContainerPort{ContainerPort: iperf3Port, Protocol: api.ProtocolTCP})
+				portSpec = append(portSpec, api.ContainerPort{ContainerPort: iperf3Port, Protocol: api.ProtocolSCTP})
+			}
 
-		_, err := c.Core().ReplicationControllers(testNamespace).Create(&api.ReplicationController{
-			ObjectMeta: metav1.ObjectMeta{Name: name},
-			Spec: api.ReplicationControllerSpec{
-				Replicas: &replicas,
-				Selector: map[string]string{"app": name},
-				Template: &api.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Labels: map[string]string{"app": name},
-					},
-					Spec: api.PodSpec{
-						NodeName: kubeNode,
-						Containers: []api.Container{
-							{
-								Name:            name,
-								Image:           netperfImage,
-								Ports:           portSpec,
-								Args:            []string{"--mode=worker"},
-								Env:             workerEnv,
-								ImagePullPolicy: "Always",
-							},
+			workerEnv := []api.EnvVar{
+				{Name: "worker", Value: name},
+				{Name: "kubeNode", Value: kubeNode},
+				{Name: "podname", Value: name},
+			}
+
+			replicas := int32(1)
+
+			_, err := c.CoreV1().ReplicationControllers(testNamespace).Create(&api.ReplicationController{
+				ObjectMeta: metav1.ObjectMeta{Name: name},
+				Spec: api.ReplicationControllerSpec{
+					Replicas: &replicas,
+					Selector: map[string]string{"app": name},
+					Template: &api.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Labels: map[string]string{"app": name},
 						},
-						TerminationGracePeriodSeconds: new(int64),
+						Spec: api.PodSpec{
+							NodeName: kubeNode,
+							Containers: []api.Container{
+								{
+									Name:  name,
+									Image: netperfImage,
+									Ports: portSpec,
+									Args: []string{"--mode=worker",
+										fmt.Sprintf("--groups=%d", testGroups),
+										fmt.Sprintf("--duration=%d", testDuration),
+										fmt.Sprintf("--step=%d", testMssStepSize),
+										fmt.Sprintf("--cooldown=%d", testCooldown),
+										logParam},
+									Env:             workerEnv,
+									ImagePullPolicy: "Always",
+								},
+							},
+							TerminationGracePeriodSeconds: new(int64),
+						},
 					},
 				},
-			},
-		})
-		if err != nil {
-			fmt.Println("Error creating orchestrator replication controller", name, ":", err)
-			return false
+			})
+			if err != nil {
+				fmt.Println("Error creating orchestrator replication controller", name, ":", err)
+				return false
+			}
 		}
+
 	}
 
 	return true
@@ -334,7 +374,7 @@ func getOrchestratorPodName(pods *api.PodList) string {
 
 // Retrieve the logs for the pod/container and check if csv data has been generated
 func getCsvResultsFromPod(c *kubernetes.Clientset, podName string) *string {
-	body, err := c.Core().Pods(testNamespace).GetLogs(podName, &api.PodLogOptions{Timestamps: false}).DoRaw()
+	body, err := c.CoreV1().Pods(testNamespace).GetLogs(podName, &api.PodLogOptions{Timestamps: false}).DoRaw()
 	if err != nil {
 		fmt.Printf("Error (%s) reading logs from pod %s", err, podName)
 		return nil
@@ -397,7 +437,7 @@ func executeTests(c *kubernetes.Clientset) bool {
 			time.Sleep(60 * time.Second)
 			var pods *api.PodList
 			var err error
-			if pods, err = c.Core().Pods(testNamespace).List(everythingSelector); err != nil {
+			if pods, err = c.CoreV1().Pods(testNamespace).List(everythingSelector); err != nil {
 				fmt.Println("Failed to fetch pods - waiting for pod creation", err)
 				continue
 			}
@@ -406,7 +446,7 @@ func executeTests(c *kubernetes.Clientset) bool {
 		fmt.Println("Orchestrator Pod is", orchestratorPodName)
 
 		// The pods orchestrate themselves, we just wait for the results file to show up in the orchestrator container
-		for true {
+		for {
 			// Monitor the orchestrator pod for the CSV results file
 			csvdata := getCsvResultsFromPod(c, orchestratorPodName)
 			if csvdata == nil {
@@ -427,9 +467,11 @@ func main() {
 	flag.Parse()
 	fmt.Println("Network Performance Test")
 	fmt.Println("Parameters :")
-	fmt.Println("Iterations      : ", iterations)
-	fmt.Println("Host Networking : ", hostnetworking)
-	fmt.Println("Docker image    : ", netperfImage)
+	fmt.Println("Iterations       : ", iterations)
+	fmt.Println("Host Networking  : ", hostnetworking)
+	fmt.Println("Docker image     : ", netperfImage)
+	fmt.Println("Number of groups : ", testGroups)
+	fmt.Println("Log state        : ", testLogState)
 	fmt.Println("------------------------------------------------------------")
 
 	var c *kubernetes.Clientset
@@ -437,6 +479,7 @@ func main() {
 		fmt.Println("Failed to setup REST client to Kubernetes cluster")
 		return
 	}
+	//cleanupOnly = true
 	if cleanupOnly {
 		cleanup(c)
 		return
