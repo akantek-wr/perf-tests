@@ -194,45 +194,45 @@ func init() {
 func initOrchestrator() {
 	log.Printf("====>>> init testcases testGroups=%d", testGroups)
 	for group := testInitialGroup; group < testGroups; group++ {
-		key := fmt.Sprintf("%d", group)
+		key := fmt.Sprintf("%03d", group)
 
 		if testTool == "all" || testTool == "iperf" {
 			if testProto == "all" || testProto == "tcp" {
 				test := []*testcase{
-					{SourceNode: fmt.Sprintf("g%d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%d-netperf-w2", group), Label: "1 iperf TCP. Same VM using Pod IP", Type: iperfTCPTest, ClusterIP: false, MSS: mssMin},
-					{SourceNode: fmt.Sprintf("g%d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%d-netperf-w2", group), Label: "2 iperf TCP. Same VM using Virtual IP", Type: iperfTCPTest, ClusterIP: true, MSS: mssMin},
-					{SourceNode: fmt.Sprintf("g%d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%d-netperf-w3", group), Label: "3 iperf TCP. Remote VM using Pod IP", Type: iperfTCPTest, ClusterIP: false, MSS: mssMin},
-					{SourceNode: fmt.Sprintf("g%d-netperf-w3", group), DestinationNode: fmt.Sprintf("g%d-netperf-w2", group), Label: "4 iperf TCP. Remote VM using Virtual IP", Type: iperfTCPTest, ClusterIP: true, MSS: mssMin},
-					{SourceNode: fmt.Sprintf("g%d-netperf-w2", group), DestinationNode: fmt.Sprintf("g%d-netperf-w2", group), Label: "5 iperf TCP. Hairpin Pod to own Virtual IP", Type: iperfTCPTest, ClusterIP: true, MSS: mssMin},
+					{SourceNode: fmt.Sprintf("g%03d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%03d-netperf-w2", group), Label: "1 iperf TCP. Same VM using Pod IP", Type: iperfTCPTest, ClusterIP: false, MSS: mssMin},
+					{SourceNode: fmt.Sprintf("g%03d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%03d-netperf-w2", group), Label: "2 iperf TCP. Same VM using Virtual IP", Type: iperfTCPTest, ClusterIP: true, MSS: mssMin},
+					{SourceNode: fmt.Sprintf("g%03d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%03d-netperf-w3", group), Label: "3 iperf TCP. Remote VM using Pod IP", Type: iperfTCPTest, ClusterIP: false, MSS: mssMin},
+					{SourceNode: fmt.Sprintf("g%03d-netperf-w3", group), DestinationNode: fmt.Sprintf("g%03d-netperf-w2", group), Label: "4 iperf TCP. Remote VM using Virtual IP", Type: iperfTCPTest, ClusterIP: true, MSS: mssMin},
+					{SourceNode: fmt.Sprintf("g%03d-netperf-w2", group), DestinationNode: fmt.Sprintf("g%03d-netperf-w2", group), Label: "5 iperf TCP. Hairpin Pod to own Virtual IP", Type: iperfTCPTest, ClusterIP: true, MSS: mssMin},
 				}
 				testcases[key] = append(testcases[key], test...)
 			}
 			if testProto == "all" || testProto == "sctp" {
 				test := []*testcase{
-					{SourceNode: fmt.Sprintf("g%d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%d-netperf-w2", group), Label: "6 iperf SCTP. Same VM using Pod IP", Type: iperfSctpTest, ClusterIP: false, MSS: mssMin},
-					{SourceNode: fmt.Sprintf("g%d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%d-netperf-w2", group), Label: "7 iperf SCTP. Same VM using Virtual IP", Type: iperfSctpTest, ClusterIP: true, MSS: mssMin},
-					{SourceNode: fmt.Sprintf("g%d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%d-netperf-w3", group), Label: "8 iperf SCTP. Remote VM using Pod IP", Type: iperfSctpTest, ClusterIP: false, MSS: mssMin},
-					{SourceNode: fmt.Sprintf("g%d-netperf-w3", group), DestinationNode: fmt.Sprintf("g%d-netperf-w2", group), Label: "9 iperf SCTP. Remote VM using Virtual IP", Type: iperfSctpTest, ClusterIP: true, MSS: mssMin},
-					{SourceNode: fmt.Sprintf("g%d-netperf-w2", group), DestinationNode: fmt.Sprintf("g%d-netperf-w2", group), Label: "10 iperf SCTP. Hairpin Pod to own Virtual IP", Type: iperfSctpTest, ClusterIP: true, MSS: mssMin},
+					{SourceNode: fmt.Sprintf("g%03d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%03d-netperf-w2", group), Label: "6 iperf SCTP. Same VM using Pod IP", Type: iperfSctpTest, ClusterIP: false, MSS: mssMin},
+					{SourceNode: fmt.Sprintf("g%03d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%03d-netperf-w2", group), Label: "7 iperf SCTP. Same VM using Virtual IP", Type: iperfSctpTest, ClusterIP: true, MSS: mssMin},
+					{SourceNode: fmt.Sprintf("g%03d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%03d-netperf-w3", group), Label: "8 iperf SCTP. Remote VM using Pod IP", Type: iperfSctpTest, ClusterIP: false, MSS: mssMin},
+					{SourceNode: fmt.Sprintf("g%03d-netperf-w3", group), DestinationNode: fmt.Sprintf("g%03d-netperf-w2", group), Label: "9 iperf SCTP. Remote VM using Virtual IP", Type: iperfSctpTest, ClusterIP: true, MSS: mssMin},
+					{SourceNode: fmt.Sprintf("g%03d-netperf-w2", group), DestinationNode: fmt.Sprintf("g%03d-netperf-w2", group), Label: "10 iperf SCTP. Hairpin Pod to own Virtual IP", Type: iperfSctpTest, ClusterIP: true, MSS: mssMin},
 				}
 				testcases[key] = append(testcases[key], test...)
 			}
 			if testProto == "all" || testProto == "udp" {
 				test := []*testcase{
-					{SourceNode: fmt.Sprintf("g%d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%d-netperf-w2", group), Label: "11 iperf UDP. Same VM using Pod IP", Type: iperfUDPTest, ClusterIP: false, MSS: mssMin},
-					{SourceNode: fmt.Sprintf("g%d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%d-netperf-w2", group), Label: "12 iperf UDP. Same VM using Virtual IP", Type: iperfUDPTest, ClusterIP: true, MSS: mssMin},
-					{SourceNode: fmt.Sprintf("g%d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%d-netperf-w3", group), Label: "13 iperf UDP. Remote VM using Pod IP", Type: iperfUDPTest, ClusterIP: false, MSS: mssMin},
-					{SourceNode: fmt.Sprintf("g%d-netperf-w3", group), DestinationNode: fmt.Sprintf("g%d-netperf-w2", group), Label: "14 iperf UDP. Remote VM using Virtual IP", Type: iperfUDPTest, ClusterIP: true, MSS: mssMin},
+					{SourceNode: fmt.Sprintf("g%03d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%03d-netperf-w2", group), Label: "11 iperf UDP. Same VM using Pod IP", Type: iperfUDPTest, ClusterIP: false, MSS: mssMin},
+					{SourceNode: fmt.Sprintf("g%03d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%03d-netperf-w2", group), Label: "12 iperf UDP. Same VM using Virtual IP", Type: iperfUDPTest, ClusterIP: true, MSS: mssMin},
+					{SourceNode: fmt.Sprintf("g%03d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%03d-netperf-w3", group), Label: "13 iperf UDP. Remote VM using Pod IP", Type: iperfUDPTest, ClusterIP: false, MSS: mssMin},
+					{SourceNode: fmt.Sprintf("g%03d-netperf-w3", group), DestinationNode: fmt.Sprintf("g%03d-netperf-w2", group), Label: "14 iperf UDP. Remote VM using Virtual IP", Type: iperfUDPTest, ClusterIP: true, MSS: mssMin},
 				}
 				testcases[key] = append(testcases[key], test...)
 			}
 		}
 		if testTool == "all" || testTool == "netperf" {
 			test := []*testcase{
-				{SourceNode: fmt.Sprintf("g%d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%d-netperf-w2", group), Label: "15 netperf. Same VM using Pod IP", Type: netperfTest, ClusterIP: false},
-				{SourceNode: fmt.Sprintf("g%d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%d-netperf-w2", group), Label: "16 netperf. Same VM using Virtual IP", Type: netperfTest, ClusterIP: true},
-				{SourceNode: fmt.Sprintf("g%d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%d-netperf-w3", group), Label: "17 netperf. Remote VM using Pod IP", Type: netperfTest, ClusterIP: false},
-				{SourceNode: fmt.Sprintf("g%d-netperf-w3", group), DestinationNode: fmt.Sprintf("g%d-netperf-w2", group), Label: "18 netperf. Remote VM using Virtual IP", Type: netperfTest, ClusterIP: true},
+				{SourceNode: fmt.Sprintf("g%03d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%03d-netperf-w2", group), Label: "15 netperf. Same VM using Pod IP", Type: netperfTest, ClusterIP: false},
+				{SourceNode: fmt.Sprintf("g%03d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%03d-netperf-w2", group), Label: "16 netperf. Same VM using Virtual IP", Type: netperfTest, ClusterIP: true},
+				{SourceNode: fmt.Sprintf("g%03d-netperf-w1", group), DestinationNode: fmt.Sprintf("g%03d-netperf-w3", group), Label: "17 netperf. Remote VM using Pod IP", Type: netperfTest, ClusterIP: false},
+				{SourceNode: fmt.Sprintf("g%03d-netperf-w3", group), DestinationNode: fmt.Sprintf("g%03d-netperf-w2", group), Label: "18 netperf. Remote VM using Virtual IP", Type: netperfTest, ClusterIP: true},
 			}
 			testcases[key] = append(testcases[key], test...)
 		}
@@ -328,7 +328,7 @@ func getWorkerPodIP(worker string) string {
 
 func allocateWorkToClient(workerS *workerState, reply *WorkItem) {
 
-	group := string(workerS.worker[1])
+	group := string(workerS.worker[1:4])
 
 	if !allWorkersIdle(group) {
 		log.Printf("return !allWorkersIdle(group)")
@@ -566,7 +566,7 @@ func parseNetperfBandwidth(output string) string {
 func (t *NetPerfRPC) ReceiveOutput(data *WorkerOutput, reply *int) error {
 	globalLock.Lock()
 	defer globalLock.Unlock()
-	group := string(data.Worker[1])
+	group := string(data.Worker[1:4])
 	testcase := testcases[group][currentJobIndex[group]]
 
 	var outputLog string
@@ -823,7 +823,7 @@ func cmdExec(command string, args []string, timeout int32) (rv string, rc bool) 
 	}
 
 	rv = stdoutput.String()
-	//fmt.Println(">>===> Result:\n", rv)
+	fmt.Println(">>===> Result:\n", rv)
 	rc = true
 	return
 }

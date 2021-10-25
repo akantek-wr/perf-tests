@@ -195,7 +195,7 @@ func createServices(c *kubernetes.Clientset) bool {
 	fmt.Println("Created orchestrator service")
 
 	for group := testInitialGroup; group < testGroups; group++ {
-		serviceName := fmt.Sprintf("g%d-netperf-w2", group)
+		serviceName := fmt.Sprintf("g%03d-netperf-w2", group)
 
 		// Create the netperf-w2 service that points a clusterIP at the worker 2 pod
 		netperfW2Labels := map[string]string{"app": serviceName}
@@ -304,7 +304,7 @@ func createRCs(c *kubernetes.Clientset) bool {
 			if i == 3 {
 				kubeNode = secondaryNode.GetName()
 			}
-			name = fmt.Sprintf("g%d-netperf-w%d", group, i)
+			name = fmt.Sprintf("g%03d-netperf-w%d", group, i)
 			fmt.Println("Creating replication controller", name)
 			portSpec := []api.ContainerPort{}
 			if i > 1 {
