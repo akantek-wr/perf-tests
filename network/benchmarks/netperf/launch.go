@@ -64,13 +64,16 @@ var (
 	primaryNode   api.Node
 	secondaryNode api.Node
 
-	testGroups      int
-	testLogState    bool
-	testDuration    int
-	testMssStepSize int
-	testProto       string
-	testTool        string
-	testCooldown    int
+	testGroups       int
+	testLogState     bool
+	testDuration     int
+	testMssStepSize  int
+	testProto        string
+	testTool         string
+	testCooldown     int
+	testTcpRateList  string
+	testSctpRateList string
+	testUdpRateList  string
 )
 
 func init() {
@@ -92,7 +95,9 @@ func init() {
 	flag.StringVar(&testTool, "tool", "all", "select test tool (all, iperf or netperf)")
 	flag.StringVar(&testProto, "proto", "all", "select iperf test protocol (all, tcp, sctp or udp)")
 	flag.IntVar(&testCooldown, "cooldown", 10, "test cooldown time between test steps")
-
+	flag.StringVar(&testTcpRateList, "tcprate", "", "Tx rates (in Mbps) to be applied on iperf for each of the 5 test flow, up to five comma separated values (e.g. 23,45,23,67,78) ")
+	flag.StringVar(&testSctpRateList, "sctprate", "", "Tx rate (in Mbps) to be applied on iperf SCTP test for each of the 5 test flows, up to five comma separated values (e.g. 23,45,23,67,78) ")
+	flag.StringVar(&testUdpRateList, "udprate", "", "Tx rate (in Mbps) to be applied on iperf UDP test for each of the 4 test flows, up to four comma separated values (e.g. 23,45,23,67) ")
 }
 
 func setupClient() *kubernetes.Clientset {
@@ -280,6 +285,9 @@ func createRCs(c *kubernetes.Clientset) bool {
 								fmt.Sprintf("--step=%d", testMssStepSize),
 								fmt.Sprintf("--tool=%s", testTool),
 								fmt.Sprintf("--proto=%s", testProto),
+								fmt.Sprintf("--tcprate=%s", testTcpRateList),
+								fmt.Sprintf("--sctprate=%s", testSctpRateList),
+								fmt.Sprintf("--udprate=%s", testUdpRateList),
 								logParam},
 							ImagePullPolicy: "Always",
 						},
@@ -424,7 +432,7 @@ func executeTests(c *kubernetes.Clientset) bool {
 			fmt.Println("Failed to create services - aborting test")
 			return false
 		}
-		time.Sleep(3 * time.Second)
+		time.Sleep(2 * time.Second)
 		if !createRCs(c) {
 			fmt.Println("Failed to create replication controllers - aborting test")
 			return false

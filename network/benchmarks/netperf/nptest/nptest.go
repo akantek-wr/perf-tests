@@ -37,6 +37,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -79,7 +80,7 @@ const (
 	outputCaptureFile    = "/tmp/output.txt"
 	mssMin               = 96
 	mssMax               = 1460
-	parallelStreams      = "8"
+	parallelStreams      = 8
 	rpcServicePort       = "5202"
 	localhostIPv4Address = "127.0.0.1"
 	netperfDataPort      = "12866" // necessary to match firewall port for "Virtual IP"
@@ -111,6 +112,7 @@ type IperfClientWorkItem struct {
 	Port string
 	MSS  int
 	Type int
+	Bw   int
 }
 
 // IperfServerWorkItem represents a single task for an Iperf server
@@ -141,6 +143,7 @@ type WorkerOutput struct {
 	Code   int
 	Worker string
 	Type   int
+	MSS    int
 }
 
 type testcase struct {
@@ -151,6 +154,7 @@ type testcase struct {
 	Finished        bool
 	MSS             int
 	Type            int
+	Reported        bool
 }
 
 var testcases = make(map[string][]*testcase)
@@ -163,6 +167,14 @@ var mssStepSize int = 64
 var testProto string = "all"
 var testTool string = "all"
 var testCooldown int = 10
+var testFlowList = [5]string{"Same VM using Pod IP", "Same VM using Virtual IP", "Remote VM using Pod IP", "Remote VM using Virtual IP", "Hairpin Pod to own Virtual IP"}
+var testTcpRateList string = ""
+var testTcpRateMap = make(map[string]int)
+var testSctpRateList string = ""
+var testSctpRateMap = make(map[string]int)
+var testUdpFlowList = [5]string{"Same VM using Pod IP", "Same VM using Virtual IP", "Remote VM using Pod IP", "Remote VM using Virtual IP"}
+var testUdpRateList string = ""
+var testUdpRateMap = make(map[string]int)
 
 func init() {
 	flag.StringVar(&mode, "mode", "worker", "Mode for the daemon (worker | orchestrator)")
@@ -175,6 +187,9 @@ func init() {
 	flag.StringVar(&testTool, "tool", "all", "select test tool (all, iperf or netperf)")
 	flag.StringVar(&testProto, "proto", "all", "select iperf test protocol (all, tcp, sctp or udp)")
 	flag.IntVar(&testCooldown, "cooldown", 10, "test cooldown time between test steps")
+	flag.StringVar(&testTcpRateList, "tcprate", "", "Tx rate (in Mbps) to be applied on iperf TCP test for each of the 5 test flows, up to five comma separated values (e.g. 23,45,23,67,78) ")
+	flag.StringVar(&testSctpRateList, "sctprate", "", "Tx rate (in Mbps) to be applied on iperf SCTP test for each of the 5 test flows, up to five comma separated values (e.g. 23,45,23,67,78) ")
+	flag.StringVar(&testUdpRateList, "udprate", "", "Tx rate (in Mbps) to be applied on iperf UDP test for each of the 4 test flows, up to four comma separated values (e.g. 23,45,23,67) ")
 
 	workerStateMap = make(map[string]*workerState)
 
@@ -192,7 +207,38 @@ func init() {
 }
 
 func initOrchestrator() {
-	log.Printf("====>>> init testcases testGroups=%d", testGroups)
+	log.Printf("====>>> init testcases testGroups=%d\n", testGroups)
+
+	tcpRateSlice := strings.Split(testTcpRateList, ",")
+	for i := 0; i < len(testFlowList); i++ {
+		testTcpRateMap[testFlowList[i]] = 0
+		if i < len(tcpRateSlice) {
+			if rate, err := strconv.Atoi(tcpRateSlice[i]); err == nil {
+				testTcpRateMap[testFlowList[i]] = rate
+			}
+		}
+	}
+
+	sctpRateSlice := strings.Split(testSctpRateList, ",")
+	for i := 0; i < len(testFlowList); i++ {
+		testSctpRateMap[testFlowList[i]] = 0
+		if i < len(sctpRateSlice) {
+			if rate, err := strconv.Atoi(sctpRateSlice[i]); err == nil {
+				testSctpRateMap[testFlowList[i]] = rate
+			}
+		}
+	}
+
+	udpRateSlice := strings.Split(testUdpRateList, ",")
+	for i := 0; i < len(testUdpFlowList); i++ {
+		testUdpRateMap[testFlowList[i]] = 0
+		if i < len(udpRateSlice) {
+			if rate, err := strconv.Atoi(udpRateSlice[i]); err == nil {
+				testUdpRateMap[testUdpFlowList[i]] = rate
+			}
+		}
+	}
+
 	for group := testInitialGroup; group < testGroups; group++ {
 		key := fmt.Sprintf("%03d", group)
 
@@ -315,7 +361,7 @@ func validateParams() (rv bool) {
 
 func allWorkersIdle(group string) bool {
 	for key, v := range workerStateMap {
-		if string(key[1]) == group && !v.idle {
+		if string(key[1:4]) == group && !v.idle {
 			return false
 		}
 	}
@@ -368,13 +414,35 @@ func allocateWorkToClient(workerS *workerState, reply *WorkItem) {
 		case v.Type == iperfTCPTest || v.Type == iperfUDPTest || v.Type == iperfSctpTest:
 			reply.ClientItem.Port = "5201"
 			reply.ClientItem.MSS = v.MSS
+			switch v.Type {
+			case iperfTCPTest:
+				for testFlow, bw := range testTcpRateMap {
+					if strings.Contains(v.Label, testFlow) {
+						reply.ClientItem.Bw = bw
+					}
+				}
+			case iperfSctpTest:
+				for testFlow, bw := range testSctpRateMap {
+					if strings.Contains(v.Label, testFlow) {
+						reply.ClientItem.Bw = bw
+					}
+				}
+			case iperfUDPTest:
+				for testFlow, bw := range testUdpRateMap {
+					if strings.Contains(v.Label, testFlow) {
+						reply.ClientItem.Bw = bw
+					}
+				}
+			default:
+				reply.ClientItem.Bw = 0
+			}
 
 			v.MSS = v.MSS + mssStepSize
 			// alwys execute the final step of 1460
 			if (v.MSS > mssMax) && ((v.MSS - mssMax) < mssStepSize) {
 				v.MSS = mssMax
 			}
-			if v.MSS > mssMax {
+			if (v.MSS > mssMax) && ((v.MSS - mssMax) >= mssStepSize) {
 				v.Finished = true
 			}
 			log.Printf("return next v.MSS=%d ", v.MSS)
@@ -385,10 +453,14 @@ func allocateWorkToClient(workerS *workerState, reply *WorkItem) {
 			return
 		}
 	}
-
-	for _, v := range testcases[group] {
-		if !v.Finished {
-			return
+	for _, testcase := range testcases {
+		for _, v := range testcase {
+			if !v.Finished {
+				return
+			}
+			if !v.Reported {
+				return
+			}
 		}
 	}
 
@@ -417,6 +489,7 @@ func (t *NetPerfRPC) RegisterClient(data *ClientRegistrationData, reply *WorkIte
 		reply.IsServerItem = true
 		reply.ServerItem.ListenPort = "5201"
 		reply.ServerItem.Timeout = 3600
+		fmt.Printf("[%s] got %d/%d pods announced\n", time.Now().Format(time.StampMilli), len(workerStateMap), (testGroups * testPodsPerGroup))
 		return nil
 	}
 
@@ -431,8 +504,8 @@ func (t *NetPerfRPC) RegisterClient(data *ClientRegistrationData, reply *WorkIte
 
 	if testGroups > 1 {
 		if runOnce {
-			wait := testGroups * testPodsPerGroup * 5
-			fmt.Printf("sleep for %d seconds to have all pods locked waiting a response\n", wait)
+			wait := (testGroups * testPodsPerGroup) + 5
+			fmt.Printf("[%s] sleep for %d seconds to have all pods locked waiting a response, to help test syncing\n", time.Now().Format(time.StampMilli), wait)
 			time.Sleep(time.Duration(wait) * time.Second)
 			fmt.Printf("finished sleep for %d\n", wait)
 			runOnce = false
@@ -576,30 +649,27 @@ func (t *NetPerfRPC) ReceiveOutput(data *WorkerOutput, reply *int) error {
 
 	switch data.Type {
 	case iperfTCPTest:
-		mss := testcases[group][currentJobIndex[group]].MSS - mssStepSize
 		outputLog = outputLog + fmt.Sprintln("Received TCP output from worker", data.Worker, "for test", testcase.Label,
-			"from", testcase.SourceNode, "to", testcase.DestinationNode, "MSS:", mss) + data.Output
+			"from", testcase.SourceNode, "to", testcase.DestinationNode, "MSS:", data.MSS) + data.Output
 		writeOutputFile(outputCaptureFile, outputLog)
 		bw = parseIperfTCPBandwidth(data.Output)
 		cpuSender, cpuReceiver = parseIperfCPUUsage(data.Output)
-		registerDataPoint(testcase.Label, mss, bw, currentJobIndex[group])
+		registerDataPoint(testcase.Label, data.MSS, bw, currentJobIndex[group])
 
 	case iperfSctpTest:
-		mss := testcases[group][currentJobIndex[group]].MSS - mssStepSize
 		outputLog = outputLog + fmt.Sprintln("Received SCTP output from worker", data.Worker, "for test", testcase.Label,
-			"from", testcase.SourceNode, "to", testcase.DestinationNode, "MSS:", mss) + data.Output
+			"from", testcase.SourceNode, "to", testcase.DestinationNode, "MSS:", data.MSS) + data.Output
 		writeOutputFile(outputCaptureFile, outputLog)
 		bw = parseIperfSctpBandwidth(data.Output)
 		cpuSender, cpuReceiver = parseIperfCPUUsage(data.Output)
-		registerDataPoint(testcase.Label, mss, bw, currentJobIndex[group])
+		registerDataPoint(testcase.Label, data.MSS, bw, currentJobIndex[group])
 
 	case iperfUDPTest:
-		mss := testcases[group][currentJobIndex[group]].MSS - mssStepSize
 		outputLog = outputLog + fmt.Sprintln("Received UDP output from worker", data.Worker, "for test", testcase.Label,
-			"from", testcase.SourceNode, "to", testcase.DestinationNode, "MSS:", mss) + data.Output
+			"from", testcase.SourceNode, "to", testcase.DestinationNode, "MSS:", data.MSS) + data.Output
 		writeOutputFile(outputCaptureFile, outputLog)
 		bw = parseIperfUDPBandwidth(data.Output)
-		registerDataPoint(testcase.Label, mss, bw, currentJobIndex[group])
+		registerDataPoint(testcase.Label, data.MSS, bw, currentJobIndex[group])
 
 	case netperfTest:
 		outputLog = outputLog + fmt.Sprintln("Received netperf output from worker", data.Worker, "for test", testcase.Label,
@@ -609,6 +679,9 @@ func (t *NetPerfRPC) ReceiveOutput(data *WorkerOutput, reply *int) error {
 		registerDataPoint(testcase.Label, 0, bw, currentJobIndex[group])
 		testcases[group][currentJobIndex[group]].Finished = true
 
+	}
+	if testcases[group][currentJobIndex[group]].Finished {
+		testcases[group][currentJobIndex[group]].Reported = true
 	}
 
 	switch data.Type {
@@ -670,12 +743,12 @@ func getMyIP() string {
 }
 
 func handleClientWorkItem(client *rpc.Client, workItem *WorkItem) {
-	fmt.Println("Orchestrator requests worker run item Type:", workItem.ClientItem.Type)
+	fmt.Printf("Orchestrator requests worker run item Type:%d Bw=%d MSS=%d\n", workItem.ClientItem.Type, workItem.ClientItem.Bw, workItem.ClientItem.MSS)
 	switch {
 	case workItem.ClientItem.Type == iperfTCPTest || workItem.ClientItem.Type == iperfUDPTest || workItem.ClientItem.Type == iperfSctpTest:
-		outputString := iperfClient(workItem.ClientItem.Host, workItem.ClientItem.Port, workItem.ClientItem.MSS, workItem.ClientItem.Type)
+		outputString := iperfClient(workItem.ClientItem.Host, workItem.ClientItem.Port, workItem.ClientItem.MSS, workItem.ClientItem.Type, workItem.ClientItem.Bw)
 		var reply int
-		err := client.Call("NetPerfRPC.ReceiveOutput", WorkerOutput{Output: outputString, Worker: worker, Type: workItem.ClientItem.Type}, &reply)
+		err := client.Call("NetPerfRPC.ReceiveOutput", WorkerOutput{Output: outputString, Worker: worker, Type: workItem.ClientItem.Type, MSS: workItem.ClientItem.MSS}, &reply)
 		if err != nil {
 			log.Fatal("failed to call client", err)
 		}
@@ -770,23 +843,40 @@ func netperfServer() {
 }
 
 // Invoke and run an iperf client and return the output if successful.
-func iperfClient(serverHost, serverPort string, mss int, workItemType int) (rv string) {
+func iperfClient(serverHost, serverPort string, mss int, workItemType int, bw int) (rv string) {
 	iperfTesDuration := fmt.Sprintf("%d", testDuration)
 	switch {
 	case workItemType == iperfTCPTest:
-		output, success := cmdExec(iperf3Path, []string{iperf3Path, "-c", serverHost, "-V", "-N", "-i", "30", "-t", iperfTesDuration, "-f", "m", "-w", "512M", "-Z", "-P", parallelStreams, "-M", strconv.Itoa(mss)}, 15)
+		args := []string{iperf3Path, "-c", serverHost, "-V", "-N", "-i", "30", "-t", iperfTesDuration, "-f", "m", "-w", "512M", "-Z", "-P", strconv.Itoa(parallelStreams), "-M", strconv.Itoa(mss)}
+		if bw > 0 {
+			streamBw := bw / parallelStreams
+			bwArg := []string{"-b", fmt.Sprintf("%dM", streamBw)}
+			args = append(args, bwArg...)
+		}
+		output, success := cmdExec(iperf3Path, args, 15)
 		if success {
 			rv = output
 		}
 
 	case workItemType == iperfSctpTest:
-		output, success := cmdExec(iperf3Path, []string{iperf3Path, "-c", serverHost, "-V", "-N", "-i", "30", "-t", iperfTesDuration, "-f", "m", "-w", "512M", "-Z", "-P", parallelStreams, "-M", strconv.Itoa(mss), "--sctp"}, 15)
+		args := []string{iperf3Path, "-c", serverHost, "-V", "-N", "-i", "30", "-t", iperfTesDuration, "-f", "m", "-w", "512M", "-Z", "-P", strconv.Itoa(parallelStreams), "-M", strconv.Itoa(mss), "--sctp"}
+		if bw > 0 {
+			streamBw := bw / parallelStreams
+			bwArg := []string{"-b", fmt.Sprintf("%dM", streamBw)}
+			args = append(args, bwArg...)
+		}
+		output, success := cmdExec(iperf3Path, args, 15)
 		if success {
 			rv = output
 		}
 
 	case workItemType == iperfUDPTest:
-		output, success := cmdExec(iperf3Path, []string{iperf3Path, "-c", serverHost, "-i", "30", "-t", iperfTesDuration, "-f", "m", "-b", "0", "-u", "-l", strconv.Itoa(mss)}, 15)
+		args := []string{iperf3Path, "-c", serverHost, "-i", "30", "-t", iperfTesDuration, "-f", "m", "-b", "0", "-u", "-l", strconv.Itoa(mss)}
+		if bw > 0 {
+			bwArg := []string{"-b", fmt.Sprintf("%dM", bw)}
+			args = append(args, bwArg...)
+		}
+		output, success := cmdExec(iperf3Path, args, 15)
 		if success {
 			rv = output
 		}
