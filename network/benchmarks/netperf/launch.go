@@ -197,7 +197,7 @@ func createServices(c *kubernetes.Clientset) bool {
 		fmt.Println("Failed to create orchestrator service", err)
 		return false
 	}
-	fmt.Println("Created orchestrator service")
+	fmt.Printf("[%s] Created orchestrator service\n", time.Now().Format(time.StampMilli))
 
 	for group := testInitialGroup; group < testGroups; group++ {
 		serviceName := fmt.Sprintf("g%03d-netperf-w2", group)
@@ -249,7 +249,7 @@ func createServices(c *kubernetes.Clientset) bool {
 			fmt.Println("Failed to create netperf-w2 service", err)
 			return false
 		}
-		fmt.Println("Created netperf-w2 service")
+		fmt.Printf("[%s] Created %s service\n", time.Now().Format(time.StampMilli), serviceName)
 	}
 	return true
 }
@@ -258,7 +258,7 @@ func createServices(c *kubernetes.Clientset) bool {
 func createRCs(c *kubernetes.Clientset) bool {
 	// Create the orchestrator RC
 	name := "netperf-orch"
-	fmt.Println("Creating replication controller", name)
+	fmt.Println(time.Now().Format(time.StampMilli), "Creating replication controller", name)
 	replicas := int32(1)
 	logParam := ""
 	if testLogState {
@@ -298,10 +298,10 @@ func createRCs(c *kubernetes.Clientset) bool {
 		},
 	})
 	if err != nil {
-		fmt.Println("Error creating orchestrator replication controller", err)
+		fmt.Println(time.Now().Format(time.StampMilli), "Error creating orchestrator replication controller", err)
 		return false
 	}
-	fmt.Println("Created orchestrator replication controller")
+	fmt.Println(time.Now().Format(time.StampMilli), "Created orchestrator replication controller")
 
 	for group := testInitialGroup; group < testGroups; group++ {
 
@@ -313,7 +313,7 @@ func createRCs(c *kubernetes.Clientset) bool {
 				kubeNode = secondaryNode.GetName()
 			}
 			name = fmt.Sprintf("g%03d-netperf-w%d", group, i)
-			fmt.Println("Creating replication controller", name)
+			fmt.Println(time.Now().Format(time.StampMilli), "Creating replication controller", name)
 			portSpec := []api.ContainerPort{}
 			if i > 1 {
 				// Worker W1 is a client-only pod - no ports are exposed
@@ -361,7 +361,7 @@ func createRCs(c *kubernetes.Clientset) bool {
 				},
 			})
 			if err != nil {
-				fmt.Println("Error creating orchestrator replication controller", name, ":", err)
+				fmt.Println(time.Now().Format(time.StampMilli), "Error creating orchestrator replication controller", name, ":", err)
 				return false
 			}
 		}
@@ -384,7 +384,7 @@ func getOrchestratorPodName(pods *api.PodList) string {
 func getCsvResultsFromPod(c *kubernetes.Clientset, podName string) *string {
 	body, err := c.CoreV1().Pods(testNamespace).GetLogs(podName, &api.PodLogOptions{Timestamps: false}).DoRaw()
 	if err != nil {
-		fmt.Printf("Error (%s) reading logs from pod %s", err, podName)
+		fmt.Printf("Error (%s) reading logs from pod %s\n", err, podName)
 		return nil
 	}
 	logData := string(body)
@@ -427,6 +427,7 @@ func processCsvData(csvData *string) bool {
 
 func executeTests(c *kubernetes.Clientset) bool {
 	for i := 0; i < iterations; i++ {
+		fmt.Printf("[%s] start iteration number %d/%d\n", time.Now().Format(time.StampMilli), i+1, iterations)
 		cleanup(c)
 		if !createServices(c) {
 			fmt.Println("Failed to create services - aborting test")
@@ -437,28 +438,37 @@ func executeTests(c *kubernetes.Clientset) bool {
 			fmt.Println("Failed to create replication controllers - aborting test")
 			return false
 		}
-		fmt.Println("Waiting for netperf pods to start up")
+		fmt.Printf("[%s] Waiting for netperf pods to start up\n", time.Now().Format(time.StampMilli))
 
 		var orchestratorPodName string
 		for len(orchestratorPodName) == 0 {
-			fmt.Println("Waiting for orchestrator pod creation")
+			fmt.Printf("[%s] Waiting for orchestrator pod creation\n", time.Now().Format(time.StampMilli))
 			time.Sleep(60 * time.Second)
 			var pods *api.PodList
 			var err error
 			if pods, err = c.CoreV1().Pods(testNamespace).List(everythingSelector); err != nil {
-				fmt.Println("Failed to fetch pods - waiting for pod creation", err)
+				fmt.Printf("[%s] Failed to fetch pods - waiting for pod creation %s\n", time.Now().Format(time.StampMilli), err)
 				continue
 			}
 			orchestratorPodName = getOrchestratorPodName(pods)
 		}
-		fmt.Println("Orchestrator Pod is", orchestratorPodName)
+		fmt.Printf("[%s] Orchestrator Pod is %s\n", time.Now().Format(time.StampMilli), orchestratorPodName)
 
 		// The pods orchestrate themselves, we just wait for the results file to show up in the orchestrator container
 		for {
 			// Monitor the orchestrator pod for the CSV results file
 			csvdata := getCsvResultsFromPod(c, orchestratorPodName)
 			if csvdata == nil {
-				fmt.Println("Scanned orchestrator pod filesystem - no results file found yet...waiting for orchestrator to write CSV file...")
+				fmt.Printf("[%s] Scanned orchestrator pod %s filesystem - no results file found yet...waiting for orchestrator to write CSV file...\n", time.Now().Format(time.StampMilli), orchestratorPodName)
+				var pods *api.PodList
+				var err error
+				if pods, err = c.CoreV1().Pods(testNamespace).List(everythingSelector); err != nil {
+					orchestratorPodName = getOrchestratorPodName(pods)
+					if orchestratorPodName == "" {
+						fmt.Printf("[%s] Cannot find  orchestrator PodName, stop test\n", time.Now().Format(time.StampMilli))
+						break
+					}
+				}
 				time.Sleep(60 * time.Second)
 				continue
 			}
@@ -466,7 +476,7 @@ func executeTests(c *kubernetes.Clientset) bool {
 				break
 			}
 		}
-		fmt.Printf("TEST RUN (Iteration %d) FINISHED - cleaning up services and pods\n", i)
+		fmt.Printf("[%s] TEST RUN (Iteration %d) FINISHED - cleaning up services and pods\n", time.Now().Format(time.StampMilli), i+1)
 	}
 	return false
 }
