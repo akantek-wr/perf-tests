@@ -34,6 +34,7 @@ import (
 	"time"
 
 	api "k8s.io/api/core/v1"
+	resource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
@@ -74,6 +75,7 @@ var (
 	testTcpRateList  string
 	testSctpRateList string
 	testUdpRateList  string
+	testIsoCpus      bool
 )
 
 func init() {
@@ -98,6 +100,7 @@ func init() {
 	flag.StringVar(&testTcpRateList, "tcprate", "", "Tx rates (in Mbps) to be applied on iperf for each of the 5 test flow, up to five comma separated values (e.g. 23,45,23,67,78) ")
 	flag.StringVar(&testSctpRateList, "sctprate", "", "Tx rate (in Mbps) to be applied on iperf SCTP test for each of the 5 test flows, up to five comma separated values (e.g. 23,45,23,67,78) ")
 	flag.StringVar(&testUdpRateList, "udprate", "", "Tx rate (in Mbps) to be applied on iperf UDP test for each of the 4 test flows, up to four comma separated values (e.g. 23,45,23,67) ")
+	flag.BoolVar(&testIsoCpus, "isocpu", false, "set isolated cpu per pod")
 }
 
 func setupClient() *kubernetes.Clientset {
@@ -329,6 +332,22 @@ func createRCs(c *kubernetes.Clientset) bool {
 
 			replicas := int32(1)
 
+			resourceRequirements := api.ResourceRequirements{}
+			if testIsoCpus {
+				cpunum := resource.Quantity{}
+				cpunum = resource.MustParse("1")
+				memory := resource.Quantity{}
+				memory = resource.MustParse("200Mi")
+				resourceList := api.ResourceList{
+					"cpu":    cpunum,
+					"memory": memory,
+				}
+				resourceRequirements = api.ResourceRequirements{
+					Limits:   resourceList,
+					Requests: resourceList,
+				}
+			}
+
 			_, err := c.CoreV1().ReplicationControllers(testNamespace).Create(&api.ReplicationController{
 				ObjectMeta: metav1.ObjectMeta{Name: name},
 				Spec: api.ReplicationControllerSpec{
@@ -353,6 +372,7 @@ func createRCs(c *kubernetes.Clientset) bool {
 										logParam},
 									Env:             workerEnv,
 									ImagePullPolicy: "Always",
+									Resources:       resourceRequirements,
 								},
 							},
 							TerminationGracePeriodSeconds: new(int64),
