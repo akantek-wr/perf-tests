@@ -176,6 +176,7 @@ var testUdpFlowList = [5]string{"Same VM using Pod IP", "Same VM using Virtual I
 var testUdpRateList string = ""
 var testUdpRateMap = make(map[string]int)
 
+// init package
 func init() {
 	flag.StringVar(&mode, "mode", "worker", "Mode for the daemon (worker | orchestrator)")
 	flag.StringVar(&port, "port", rpcServicePort, "Port to listen on (defaults to 5202)")
@@ -489,7 +490,7 @@ func (t *NetPerfRPC) RegisterClient(data *ClientRegistrationData, reply *WorkIte
 		reply.IsServerItem = true
 		reply.ServerItem.ListenPort = "5201"
 		reply.ServerItem.Timeout = 3600
-		fmt.Printf("[%s] got %d/%d pods announced\n", time.Now().Format(time.StampMilli), len(workerStateMap), (testGroups * testPodsPerGroup))
+		fmt.Printf("[%s] got %d/%d pods announced (%s)\n", time.Now().Format(time.StampMilli), len(workerStateMap), (testGroups * testPodsPerGroup), data.Worker)
 		return nil
 	}
 

@@ -462,7 +462,7 @@ func executeTests(c *kubernetes.Clientset) bool {
 				fmt.Printf("[%s] Scanned orchestrator pod %s filesystem - no results file found yet...waiting for orchestrator to write CSV file...\n", time.Now().Format(time.StampMilli), orchestratorPodName)
 				var pods *api.PodList
 				var err error
-				if pods, err = c.CoreV1().Pods(testNamespace).List(everythingSelector); err != nil {
+				if pods, err = c.CoreV1().Pods(testNamespace).List(everythingSelector); err == nil {
 					orchestratorPodName = getOrchestratorPodName(pods)
 					if orchestratorPodName == "" {
 						fmt.Printf("[%s] Cannot find  orchestrator PodName, stop test\n", time.Now().Format(time.StampMilli))
